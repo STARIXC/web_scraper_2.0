@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Web Scraper V2.0 (Bootstrap UI)</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+    <style>
+        .log-output {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            padding: 15px;
+            height: 250px;
+            overflow-y: scroll;
+            font-family: monospace;
+            font-size: 0.85rem;
+            white-space: pre-wrap;
+        }
+    </style>
+</head>
+<body>
+    <div class="container my-5">
+        <h1 class="mb-4 text-center">Advanced Website Scraper V2.0</h1>
+
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-primary text-white">Scraping Configuration</div>
+            <div class="card-body">
+                <form id="scraperForm">
+                    <div class="mb-3">
+                        <label for="url" class="form-label fw-bold">1. Starting URL</label>
+                        <input type="url" id="url" name="url" class="form-control" placeholder="https://example.com" required>
+                    </div>
+
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label for="max_pages" class="form-label">2. Max Pages</label>
+                            <input type="number" id="max_pages" name="max_pages" class="form-control" value="10" min="1">
+                        </div>
+                        <div class="col-md-6">
+                            <label for="delay" class="form-label">3. Delay (seconds)</label>
+                            <input type="number" id="delay" name="delay" class="form-control" value="1" min="0" step="0.1">
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">4. Tags to Scrape</label>
+                        <div class="row">
+                            <div class="col">
+                                <div class="form-check form-check-inline"><input type="checkbox" name="tags" value="h1" class="form-check-input" checked><label class="form-check-label">H1</label></div>
+                                <div class="form-check form-check-inline"><input type="checkbox" name="tags" value="h2" class="form-check-input" checked><label class="form-check-label">H2</label></div>
+                                <div class="form-check form-check-inline"><input type="checkbox" name="tags" value="p" class="form-check-input" checked><label class="form-check-label">P</label></div>
+                            </div>
+                            <div class="col">
+                                <div class="form-check form-check-inline"><input type="checkbox" name="tags" value="article" class="form-check-input"><label class="form-check-label">Article</label></div>
+                                <div class="form-check form-check-inline"><input type="checkbox" name="tags" value="div" class="form-check-input"><label class="form-check-label">Div</label></div>
+                                <div class="form-check form-check-inline"><input type="checkbox" name="tags" value="span" class="form-check-input"><label class="form-check-label">Span</label></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-check mb-4">
+                        <input type="checkbox" id="structured" name="structured" class="form-check-input">
+                        <label class="form-check-label fw-bold" for="structured">5. Extract Tables and Metadata</label>
+                    </div>
+
+                    <div class="d-grid gap-2 d-md-flex justify-content-md-start">
+                        <button type="submit" id="start-btn" class="btn btn-success btn-lg">Start Scraping</button>
+                        <button type="button" id="stop-btn" class="btn btn-warning btn-lg" disabled>Stop Scraping</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-secondary text-white">Scrape Status & Output</div>
+            <div class="card-body">
+                <p class="lead mb-2">
+                    Status: <span class="badge bg-info text-dark" id="status-text">Idle</span> |
+                    Pages: <span class="fw-bold" id="pages-scraped">0</span>/<span id="max-pages">0</span>
+                </p>
+
+                <div class="progress mb-3" role="progressbar" aria-label="Scrape progress" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated" id="progress-fill" style="width: 0%">0%</div>
+                </div>
+
+                <p class="fw-bold mb-1">Activity Log:</p>
+                <div id="log-output" class="log-output card-text">Awaiting input...</div>
+            </div>
+        </div>
+
+        <div class="card shadow-sm">
+            <div class="card-header bg-dark text-white">Data Actions</div>
+            <div class="card-body d-grid gap-2 d-md-block">
+                <p class="mb-2">Download Scraped Data:</p>
+                <button id="download-csv-btn" class="btn btn-primary" disabled>Download CSV</button>
+                <button id="download-json-btn" class="btn btn-primary" disabled>Download JSON</button>
+            </div>
+        </div>
+
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
+
+    <script>
+        let currentJobId = null;
+        let pollInterval = null;
+
+        // Helper to control UI state (important for button management)
+        function setUIState(state) {
+            const isRunning = state === 'RUNNING';
+            const isComplete = state === 'FINISHED' || state === 'STOPPED';
+            const isIdle = state === 'IDLE' || state === 'STARTING';
+
+            document.getElementById('start-btn').disabled = isRunning;
+            document.getElementById('stop-btn').disabled = !isRunning;
+            document.getElementById('download-csv-btn').disabled = !isComplete;
+            document.getElementById('download-json-btn').disabled = !isComplete;
+
+            // Re-disable downloads if no data was actually scraped
+            if (isComplete) {
+                const totalScraped = parseInt(document.getElementById('pages-scraped').textContent);
+                if (totalScraped === 0) {
+                    document.getElementById('download-csv-btn').disabled = true;
+                    document.getElementById('download-json-btn').disabled = true;
+                }
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+             // Set initial state
+            setUIState('IDLE');
+        });
+
+
+        document.getElementById('scraperForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const form = e.target;
+            const selectedTags = Array.from(form.querySelectorAll('input[name="tags"]:checked')).map(cb => cb.value);
+
+            const formData = {
+                url: form.url.value,
+                max_pages: parseInt(form.max_pages.value),
+                delay: parseFloat(form.delay.value),
+                tags: selectedTags,
+                structured: form.structured.checked
+            };
+
+            // Set UI state to starting
+            setUIState('STARTING');
+            document.getElementById('status-text').textContent = 'Starting...';
+            document.getElementById('log-output').textContent = 'Sending request to backend...';
+
+            try {
+                const response = await fetch('/start_scrape', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(formData)
+                });
+                const result = await response.json();
+
+                if (response.ok) {
+                    currentJobId = result.job_id;
+                    pollStatus(currentJobId, formData.max_pages);
+                } else {
+                    document.getElementById('status-text').textContent = `ERROR: ${result.error}`;
+                    setUIState('IDLE');
+                }
+            } catch (error) {
+                document.getElementById('status-text').textContent = `NETWORK ERROR: ${error.message}`;
+                setUIState('IDLE');
+            }
+        });
+
+        // 2. Status Polling Function (Modified to accept max_pages for accurate display)
+        function pollStatus(jobId, maxPages) {
+            if (pollInterval) clearInterval(pollInterval);
+
+            pollInterval = setInterval(async () => {
+                const logElement = document.getElementById('log-output');
+
+                try {
+                    const response = await fetch(`/status/${jobId}`);
+                    if (!response.ok) throw new Error('Failed to fetch status.');
+
+                    const status = await response.json();
+
+                    // Update Status and Progress
+                    document.getElementById('status-text').textContent = status.status;
+                    document.getElementById('pages-scraped').textContent = status.pages_scraped;
+                    document.getElementById('max-pages').textContent = maxPages; // Use the value from the form submission
+
+                    const progress = status.pages_scraped;
+                    const progressPercent = Math.min((progress / maxPages) * 100, 100);
+
+                    const progressFill = document.getElementById('progress-fill');
+                    progressFill.style.width = `${progressPercent.toFixed(1)}%`;
+                    progressFill.textContent = `${progressPercent.toFixed(1)}%`;
+
+                    // Dynamic progress bar color (Bootstrap utility classes)
+                    if (status.status === 'FINISHED') {
+                        progressFill.classList.add('bg-success');
+                        progressFill.classList.remove('bg-info', 'progress-bar-animated');
+                    } else if (status.status === 'RUNNING') {
+                         progressFill.classList.add('bg-info', 'progress-bar-animated');
+                         progressFill.classList.remove('bg-success');
+                    } else if (status.status === 'STOPPED') {
+                        progressFill.classList.add('bg-warning');
+                        progressFill.classList.remove('bg-success', 'bg-info', 'progress-bar-animated');
+                    }
+
+                    // Set Button State
+                    setUIState(status.status);
+
+                    // Append Logs
+                    if (status.log && status.log.length > 0) {
+                        logElement.textContent += status.log.join('\n') + '\n';
+                        logElement.scrollTop = logElement.scrollHeight;
+                    }
+
+                    // Check for Completion
+                    if (status.status === 'FINISHED' || status.status === 'STOPPED') {
+                        clearInterval(pollInterval);
+                        logElement.textContent += `\n--- Scraping ${status.status} ---\nTotal pages scraped: ${status.total_urls_scraped}`;
+                    }
+
+                } catch (error) {
+                    clearInterval(pollInterval);
+                    logElement.textContent += `\n[FATAL ERROR] Cannot connect to server or job lost. ${error.message}`;
+                    setUIState('IDLE');
+                }
+            }, 2000); // Poll every 2 seconds
+        }
+
+        // 3. Stop Button Logic
+        document.getElementById('stop-btn').addEventListener('click', async () => {
+            if (currentJobId) {
+                // Manually set UI state to STOPPED immediately for visual feedback
+                setUIState('STOPPED');
+                document.getElementById('status-text').textContent = 'Stopping...';
+                await fetch(`/stop_scrape/${currentJobId}`, { method: 'POST' });
+            }
+        });
+
+        // 4. Download Button Logic
+        document.getElementById('download-csv-btn').addEventListener('click', () => {
+            if (currentJobId && !document.getElementById('download-csv-btn').disabled) {
+                window.location.href = `/download/${currentJobId}/csv`;
+            }
+        });
+        document.getElementById('download-json-btn').addEventListener('click', () => {
+            if (currentJobId && !document.getElementById('download-json-btn').disabled) {
+                window.location.href = `/download/${currentJobId}/json`;
+            }
+        });
+    </script>
+</body>
+</html>
